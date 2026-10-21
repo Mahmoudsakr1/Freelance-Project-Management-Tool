@@ -63,6 +63,17 @@ When a feature isn't available, the page says so instead of failing.
 
 Sign in with Google, Gmail and Google Contacts work on your hosted copy once you create a free Google OAuth client ID and paste it into `index.html`. It takes about 10 minutes.
 
+> **This copy is already set up.** `index.html` contains the client ID for Google Cloud project `divine-fuze-512315-g3` (owner: mahmoudsakr646@gmail.com, client "Workbench web"). Allowed address: `http://localhost:8000`. Test user: mahmuod.ragab55@gmail.com. When you publish on GitHub Pages, add `https://<your-username>.github.io` under **Authorized JavaScript origins** for that client (Google Cloud → Google Auth Platform → Clients → Workbench web), and add any other Gmail address you'll sign in with as a test user (Audience → Test users).
+
+### Run it on your computer
+Google sign-in doesn't work from a file opened directly (`file://`). Serve the folder on port 8000 instead, for example with Python:
+
+```bash
+python -m http.server 8000
+```
+
+Then open `http://localhost:8000` in your browser.
+
 ### 1. Create a Google Cloud project
 1. Open [Google Cloud Console](https://console.cloud.google.com/) and sign in with your Google account.
 2. Click the project picker at the top, then **New project**. Name it `Workbench` and click **Create**.
