@@ -27,8 +27,9 @@ The whole app is a single `index.html` file: no build step, no backend, no depen
 
 ### Client work
 - **Requests:** log client asks, mark them in scope or as a change order, link them to tasks
+- **Sign in with Google:** one private workspace per Google account, with an account switcher (hosted version; see [Set up Google sign-in](#set-up-google-sign-in))
 - **Inbox (Gmail):** search and read threads, turn an email into a task or request, save senders as contacts, draft a reply and save it to Gmail Drafts (never sent automatically)
-- **Contacts:** clients and collaborators linked to projects, with an import that suggests people you email
+- **Contacts:** clients and collaborators linked to projects, with imports from people you email and from Google Contacts
 
 ### Notes, library, reports
 - **Notes:** folders, tags, pins, colors, archive and trash, search and sort, edit/split/preview modes, formatting toolbar, clickable checklists, `[[wiki links]]` with backlinks, 7 templates, Markdown export
@@ -42,19 +43,75 @@ An assistant panel (Ctrl+K) that reads the open project and can plan from a brie
 
 The app is built to run as a [Claude](https://claude.ai) artifact, where it uses Claude's runtime for storage, the agent, Gmail and file handling. It also runs as a plain web page, with some features turned off.
 
-| Feature | Inside Claude | Standalone (GitHub Pages, local file) |
-|---|---|---|
-| Projects, tasks, all project views | Yes | Yes |
-| Estimates, Gantt, critical path, workload | Yes | Yes |
-| Time tracking, invoices | Yes | Yes |
-| Notes, library (links), contacts, reports | Yes | Yes |
-| Where data is saved | Your Claude workspace, synced across devices | This browser only (`localStorage`) |
-| Planning agent and note/report AI actions | Yes | No |
-| Gmail inbox, contact import, Gmail drafts | Yes (Gmail connector) | No |
-| File uploads in the library | Yes | No (links still work) |
-| Report and note exports | Downloads a file | Copies the content to your clipboard |
+| Feature | Inside Claude | Standalone with Google sign-in | Standalone, no sign-in |
+|---|---|---|---|
+| Projects, tasks, all project views | Yes | Yes | Yes |
+| Estimates, Gantt, critical path, workload | Yes | Yes | Yes |
+| Time tracking, invoices | Yes | Yes | Yes |
+| Notes, library (links), contacts, reports | Yes | Yes | Yes |
+| Sign-in | Your Claude account | Sign in with Google, several accounts per device | None |
+| Where data is saved | Your Claude workspace, synced across devices | This browser, one workspace per Google account | This browser |
+| Gmail inbox, Gmail reply drafts | Yes (Gmail connector) | Yes (Gmail API) | No |
+| Import Google Contacts | No | Yes (People API) | No |
+| Planning agent and note/report AI actions | Yes | No | No |
+| File uploads in the library | Yes | No (links still work) | No (links still work) |
+| Report and note exports | Downloads a file | Copies the content to your clipboard | Copies the content to your clipboard |
 
 When a feature isn't available, the page says so instead of failing.
+
+## Set up Google sign-in
+
+Sign in with Google, Gmail and Google Contacts work on your hosted copy once you create a free Google OAuth client ID and paste it into `index.html`. It takes about 10 minutes.
+
+### 1. Create a Google Cloud project
+1. Open [Google Cloud Console](https://console.cloud.google.com/) and sign in with your Google account.
+2. Click the project picker at the top, then **New project**. Name it `Workbench` and click **Create**.
+
+### 2. Turn on the APIs
+1. Go to **APIs & Services → Library**.
+2. Search for **Gmail API** and click **Enable**.
+3. Search for **People API** and click **Enable** (used for importing Google Contacts).
+
+### 3. Configure the consent screen
+1. Go to **APIs & Services → OAuth consent screen** (shown as **Google Auth Platform** in newer consoles).
+2. Choose **External** as the user type, and fill in the app name (`Workbench`), your support email and your developer contact email.
+3. Under **Data access** (or **Scopes**), add:
+   - `https://www.googleapis.com/auth/gmail.readonly` (read mail)
+   - `https://www.googleapis.com/auth/gmail.compose` (create drafts)
+   - `https://www.googleapis.com/auth/contacts.readonly` (read contacts)
+4. Under **Audience** (or **Test users**), keep the app in **Testing** and add every Gmail address you will sign in with.
+
+### 4. Create the client ID
+1. Go to **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+2. Application type: **Web application**.
+3. Under **Authorized JavaScript origins**, add the address you host the page on, with no path and no trailing slash:
+   - `https://<your-username>.github.io`
+   - `http://localhost:8000` if you also want to test locally
+4. Click **Create** and copy the **Client ID** (it ends in `.apps.googleusercontent.com`). No client secret is needed.
+
+### 5. Paste it into index.html
+Near the top of the `<script>` in `index.html`, find this line and paste your ID between the quotes:
+
+```js
+const GOOGLE_CLIENT_ID='1234567890-abc123.apps.googleusercontent.com';
+```
+
+Commit and push. Your site now opens on a sign-in screen.
+
+### How it works
+- **Sign in:** the "Continue with Google" button uses [Google Identity Services](https://developers.google.com/identity/gsi/web). Google returns your name, email and photo, and the page checks that the sign-in was issued for your client ID and hasn't expired.
+- **Several accounts:** each Google account you sign in with appears on the sign-in screen and in **Account**, and gets its own separate workspace (projects, notes, library, contacts) in this browser. Switch between them in one click; **Sign out** returns to the sign-in screen.
+- **Your existing data:** the first account you sign in with takes over anything you created before sign-in was set up.
+- **Gmail and Contacts:** connected separately with **Connect Gmail**, which opens Google's own permission window. Google grants access for about an hour; it is kept only for the open tab and you reconnect when it expires. Workbench can read mail, create drafts and read contacts. It has no permission to send email.
+- **What "Testing" mode means:** Gmail scopes are restricted by Google, so an app in Testing works only for the test users you listed (up to 100). Google shows a "Google hasn't verified this app" screen. Click **Continue**: it's your own app. You only need Google's verification if you want strangers to use it.
+
+### Important
+- **Sign-in is not a lock.** This is a static page with no server: sign-in decides which workspace you see, but the data itself is stored in the browser on that device. Anyone using the same browser profile could open it. Don't use a shared computer for sensitive client data.
+- **The client ID is not a secret.** It is public by design and only works on the origins you authorized.
+- **Troubleshooting:**
+  - `Error 400: redirect_uri_mismatch` or `origin_mismatch` means the page's address isn't listed under **Authorized JavaScript origins**.
+  - `access_denied` means your Gmail address isn't a test user.
+  - A button that never appears usually means a browser extension is blocking `accounts.google.com`.
 
 ## Host it on GitHub Pages
 
@@ -86,7 +143,7 @@ To try it without GitHub, open `index.html` directly in a browser.
 
 ## Data and privacy
 
-- **Standalone:** everything is stored in your browser's `localStorage` under the keys `fw.data`, `fw.cols` and `fw.ui`. Nothing is sent to a server. Clearing site data, or using a private window, removes it, and data does not move between browsers or devices.
+- **Standalone:** everything is stored in your browser's `localStorage` under the keys `fw.data`, `fw.cols` and `fw.ui` (with `:<email>` added for each signed-in Google account, plus `fw.accounts` and `fw.active` for the account list). Nothing is sent to a server except your own requests to Google's APIs when you use Gmail or Contacts. Clearing site data, or using a private window, removes it, and data does not move between browsers or devices.
 - **Inside Claude:** data is stored in the artifact's private database, readable only by the owner by default. Gmail is accessed through your own Claude Gmail connector with your permission.
 - **Fonts:** loaded from Google Fonts (Bricolage Grotesque, IBM Plex Sans, IBM Plex Mono) with system font fallbacks.
 - **Secrets:** don't store passwords or API keys in notes, links or task fields.

@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 </head>
 <body>
@@ -397,6 +398,14 @@ table.grid{border-collapse:collapse;width:100%;font-size:13px}
 .welcome{position:fixed;inset:0;z-index:70;background:var(--bg);display:grid;place-items:center;padding:16px;overflow:auto}
 .welcome-card{width:min(440px,100%);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:28px;display:grid;gap:16px}
 .welcome-card h1{font-size:26px}
+.welcome-card code{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);padding:1px 4px;border-radius:4px}
+.acc-list{display:grid;gap:6px}
+.acc{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:10px;padding:2px 6px 2px 2px}
+.acc:hover{border-color:var(--faint)}
+.acc-btn{flex:1;min-width:0;display:flex;gap:10px;align-items:center;border:0;background:none;padding:8px;text-align:left;border-radius:8px}
+.acc-btn small{display:block;color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis}
+.acc-btn b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-btn-host{min-height:44px;display:flex;justify-content:center;align-items:center}
 @media (max-width:1000px){.notes{grid-template-columns:minmax(0,240px) minmax(0,1fr)}.nt-side{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.nt-side .side-label{display:none}.nt-side form{display:none}}
 @media (max-width:860px){.ib{grid-template-columns:1fr}.notes{grid-template-columns:1fr}.notes.has-sel .nt-list,.notes.has-sel .nt-side{display:none}.nt-back{display:inline-flex}.nt-panes{grid-template-columns:1fr}.nt-panes.mode-split .nt-preview{display:none}}
 @media (max-width:1180px){
@@ -432,6 +441,14 @@ table.grid{border-collapse:collapse;width:100%;font-size:13px}
 <div id="welcome"></div>
 
 <script>
+/* ============ Google sign-in (standalone hosting only) ============
+   Paste your Google OAuth "Web application" client ID below to turn on
+   Sign in with Google, Gmail and Google Contacts when this file is hosted
+   on its own (GitHub Pages, any static host). Ignored inside Claude.
+   Setup steps: see README.md → "Set up Google sign-in". */
+const GOOGLE_CLIENT_ID='';
+const G_SCOPES='https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/contacts.readonly';
+
 /* ============ constants ============ */
 const STATUSES=[['backlog','Backlog'],['todo','To do'],['doing','In progress'],['review','Review'],['done','Done']];
 const PRIS=[['high','High'],['medium','Medium'],['low','Low'],['none','None']];
@@ -525,8 +542,10 @@ let DB=null,AI=null,CTL=null;
 const dirty=new Set(),timers={},inflight={},lastJSON={},qseq={};
 
 try{const u=JSON.parse(localStorage.getItem('fw.ui')||'{}');['cur','page','view','ai'].forEach(k=>{if(u[k]!==undefined)S[k]=u[k]})}catch(e){}
-function loadLocal(){try{const d=JSON.parse(localStorage.getItem('fw.data')||'null');if(d){S.projects=d.projects||{};S.ws=d.ws||S.ws}}catch(e){}}
-function persistLocal(){try{localStorage.setItem('fw.data',JSON.stringify({projects:S.projects,ws:S.ws}))}catch(e){}}
+/* each signed-in Google account gets its own storage namespace */
+let NS='';const K=k=>NS?k+':'+NS:k;
+function loadLocal(){S.projects={};S.ws=clone(DEF_WS);try{const d=JSON.parse(localStorage.getItem(K('fw.data'))||'null');if(d){S.projects=d.projects||{};S.ws=d.ws||S.ws}}catch(e){}}
+function persistLocal(){try{localStorage.setItem(K('fw.data'),JSON.stringify({projects:S.projects,ws:S.ws}))}catch(e){}}
 function savePrefs(){try{localStorage.setItem('fw.ui',JSON.stringify({cur:S.cur,page:S.page,view:S.view,ai:S.ai}))}catch(e){}}
 
 const P=()=>S.projects[S.cur]||null;
@@ -756,7 +775,8 @@ function renderSide(){
   ${ps.map(p=>{const d=p.tasks.filter(isDone).length;return`<button class="pitem ${S.page==='project'&&S.cur===p.id?'on':''}" data-act="open-project" data-id="${p.id}"><span class="dot" style="--c:${esc(p.color)}"></span><span class="pname">${esc(p.name)}</span><span class="pmeta">${d}/${p.tasks.length}</span></button>`}).join('')||'<div class="empty-note" style="padding:4px 8px">No projects yet</div>'}
   <div class="side-foot">
     ${tm?`<div style="display:grid;gap:6px"><span>Timer on <b class="mono">${esc(tm.task)}</b></span><div style="display:flex;gap:8px;align-items:center"><b class="mono" data-timer>${timerText()}</b><button class="btn sm" data-act="stop-timer">Stop &amp; log</button></div></div>`:''}
-    <div class="sync ${S.mode==='db'?'':'local'}"><i></i>${S.mode==='db'?'Saved to your workspace':'Saved in this browser only'}</div>
+    ${typeof STANDALONE!=='undefined'&&STANDALONE&&NS&&ME?`<button class="nav-btn" data-act="modal" data-m="account" style="padding:6px 4px">${avatarImg(ME.avatarUrl,ME.name,24)}<span class="pname" style="font-size:12.5px">${esc(ME.email)}</span></button>`:''}
+    <div class="sync ${S.mode==='db'?'':'local'}"><i></i>${S.mode==='db'?'Saved to your workspace':NS?'Saved in this browser, per account':'Saved in this browser only'}</div>
   </div>`;
 }
 
@@ -1392,7 +1412,7 @@ document.addEventListener('click',e=>{
   const act=el.dataset.act,id=el.dataset.id,p=P();
   if(act==='modal-bg'){if(e.target===el){S.modal=null;renderModal()}return}
   switch(act){
-    case 'page':S.page=el.dataset.page;S.side=false;S.drawer=null;if(el.dataset.page==='mywork')S.filter.who=S.filter.who||'me';render();if(S.page==='inbox'&&!S.inbox.threads&&!S.inbox.loading&&MCP)loadInbox();break;
+    case 'page':S.page=el.dataset.page;S.side=false;S.drawer=null;if(el.dataset.page==='mywork')S.filter.who=S.filter.who||'me';render();if(S.page==='inbox'&&!S.inbox.threads&&!S.inbox.loading&&(MCP||(STANDALONE&&GA.token)))loadInbox();break;
     case 'side':S.side=!S.side;renderSide();updateScrim();break;
     case 'open-project':S.cur=id;S.page='project';S.side=false;S.drawer=null;S.focusTask=null;S.filter={q:'',who:'',tag:'',pri:'',due:'',done:false};render();break;
     case 'view':S.view=el.dataset.v;S.layersOpen=false;render();break;
@@ -1578,8 +1598,9 @@ Object.assign(S,{noteSel:null,noteFolder:'all',noteQ:'',noteTag:'',noteMode:'spl
   report:{type:'status',pid:'all',from:addDays(today(),-30),to:today(),summary:null},
   scan:null,contactQ:'',gmail:{status:'unknown',account:''},welcome:false});
 let MCP=null,DL=null,USER=null,ASSETS=null,PERMS=null,ME=null;
-try{const c=JSON.parse(localStorage.getItem('fw.cols')||'null');if(c)COLS.forEach(k=>S.col[k]=c[k]||{})}catch(e){}
-function persistCols(){try{localStorage.setItem('fw.cols',JSON.stringify(S.col))}catch(e){}}
+function loadColsLocal(){S.col={notes:{},library:{},contacts:{}};try{const c=JSON.parse(localStorage.getItem(K('fw.cols'))||'null');if(c)COLS.forEach(k=>S.col[k]=c[k]||{})}catch(e){}}
+loadColsLocal();
+function persistCols(){try{localStorage.setItem(K('fw.cols'),JSON.stringify(S.col))}catch(e){}}
 const colTimers={},colInflight={};
 function saveDoc(col,doc,how='all'){
   doc.updated=Date.now();S.col[col][doc.id]=doc;persistCols();
@@ -1615,7 +1636,11 @@ async function saveFile(filename,data){
 /* ---------- Gmail via connector ---------- */
 function gmailErr(e){
   const c=e&&e.code;
-  if(!MCP)return{msg:'Gmail works when this page is open in Claude.',allow:false};
+  if(!MCP){
+    if(!(STANDALONE&&GOOGLE_CLIENT_ID))return{msg:STANDALONE?'Gmail needs Google sign-in, which is not set up for this copy yet. See the README.':'Gmail works when this page is open in Claude.',allow:false};
+    if(c==='needs_token'||c==='approval_required')return{msg:'Connect your Gmail to load your inbox here.',allow:true};
+    if(c==='needs_reauth')return{msg:'Your Gmail access expired (Google grants it for about an hour). Connect again.',allow:true};
+  }
   switch(c){
     case 'server_not_connected':return{msg:'Gmail is not connected to your Claude account. Add it in claude.ai Settings → Connectors, then reload this page.'};
     case 'needs_reauth':return{msg:'Your Gmail connection expired. Reconnect Gmail in claude.ai Settings → Connectors.'};
@@ -1628,7 +1653,10 @@ function gmailErr(e){
   }
 }
 async function gmail(tool,input,opts){
-  if(!MCP)throw{code:'capability_disabled'};
+  if(!MCP){
+    if(STANDALONE&&GOOGLE_CLIENT_ID){if(!GA.token)throw{code:'needs_token'};return gmailRest(tool,input)}
+    throw{code:'capability_disabled'};
+  }
   const r=await MCP.callTool('Gmail',tool,input,opts);
   return r.payload!==undefined?r.payload:r;
 }
@@ -1664,7 +1692,7 @@ function inboxView(){
   <div class="ib">
     <div class="ib-list panel" style="padding:0">${ib.loading&&!list?'<div class="empty-note" style="padding:14px">Loading your email…</div>':''}
     ${list?(list.length?list.map(t=>{const m=t.messages&&t.messages[0]||{};const a=parseAddr(m.sender);const unread=(m.labelIds||[]).includes('UNREAD');
-      return`<button class="ib-row ${ib.open===t.id?'on':''} ${unread?'unread':''}" data-act="ib-open" data-id="${esc(t.id)}"><span class="ib-from">${esc(a.name||a.email)}</span><span class="tid">${m.date?new Date(m.date).toLocaleDateString(undefined,{month:'short',day:'numeric'}):''}</span><span class="ib-sub">${esc(m.subject||'(no subject)')}${t.messageCount>1?` <span class="tid">${t.messageCount}</span>`:''}</span><span class="ib-snip">${esc(String(m.snippet||'').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&amp;/g,'&').slice(0,140))}</span></button>`}).join('')+(ib.next?`<button class="btn ghost sm" data-act="ib-more" style="margin:8px">${ib.loading?'Loading…':'Load more'}</button>`:''):'<div class="empty-note" style="padding:14px">No emails match this search.</div>'):(!ib.err&&!ib.loading?'<div class="empty-note" style="padding:14px">Open this page in Claude to load your Gmail.</div>':'')}</div>
+      return`<button class="ib-row ${ib.open===t.id?'on':''} ${unread?'unread':''}" data-act="ib-open" data-id="${esc(t.id)}"><span class="ib-from">${esc(a.name||a.email)}</span><span class="tid">${m.date?new Date(m.date).toLocaleDateString(undefined,{month:'short',day:'numeric'}):''}</span><span class="ib-sub">${esc(m.subject||'(no subject)')}${t.messageCount>1?` <span class="tid">${t.messageCount}</span>`:''}</span><span class="ib-snip">${esc(String(m.snippet||'').replace(/&#39;/g,"'").replace(/&quot;/g,'"').replace(/&amp;/g,'&').slice(0,140))}</span></button>`}).join('')+(ib.next?`<button class="btn ghost sm" data-act="ib-more" style="margin:8px">${ib.loading?'Loading…':'Load more'}</button>`:''):'<div class="empty-note" style="padding:14px">No emails match this search.</div>'):(!ib.err&&!ib.loading?(STANDALONE?(GOOGLE_CLIENT_ID?`<div style="padding:14px;display:grid;gap:8px;justify-items:start"><span class="empty-note">${NS?'Connect Gmail to load your inbox.':'Sign in with Google, then connect Gmail.'}</span><button class="btn primary sm" data-act="allow-gmail">${NS?'Connect Gmail':'Sign in'}</button></div>`:'<div class="empty-note" style="padding:14px">Gmail needs Google sign-in, which is not set up for this copy yet. See the README.</div>'):'<div class="empty-note" style="padding:14px">Open this page in Claude to load your Gmail.</div>'):'')}</div>
     <div class="ib-read panel">${threadPane()}</div>
   </div>`;
 }
@@ -1692,10 +1720,10 @@ function contactsView(){
   const q=S.contactQ.toLowerCase();
   const cs=Object.values(S.col.contacts).filter(c=>!q||[c.name,c.email,c.company,c.role,(c.tags||[]).join(' ')].join(' ').toLowerCase().includes(q)).sort((a,b)=>(a.name||a.email).localeCompare(b.name||b.email));
   const sc=S.scan;
-  return topbar('Contacts',`${Object.keys(S.col.contacts).length} people · clients, collaborators and suppliers`,`<button class="btn" data-act="scan-gmail">Find in Gmail</button><button class="btn primary" data-act="modal" data-m="contact">${ICON.plus}Contact</button>`)+
-  (sc?`<div class="panel" style="margin-bottom:14px;display:grid;gap:8px"><h2>People you email${sc.busy?' <span class="tid">scanning…</span>':''}<button class="btn ghost sm" data-act="scan-close">Close</button></h2>
-    ${sc.err?`<div class="empty-note">${esc(sc.err.msg)} ${sc.err.allow?'<button class="btn primary sm" data-act="allow-gmail">Allow Gmail</button>':''}</div>`:''}
-    ${sc.list?`<p class="empty-note" style="margin:0">From your last ${sc.threads} email threads (90 days). Tick the people to save.</p><div class="lines" style="max-height:320px;overflow:auto">${sc.list.map((c,i)=>`<label class="line"><input type="checkbox" data-scan="${i}" id="sc-${i}" ${c.pick?'checked':''}><span class="grow"><b>${esc(c.name||c.email)}</b> <span class="tid">${esc(c.email)}</span></span><span class="tid">${c.count} emails · ${fmtD(c.last)}</span></label>`).join('')||'<div class="empty-note">Everyone found is already saved.</div>'}</div>
+  return topbar('Contacts',`${Object.keys(S.col.contacts).length} people · clients, collaborators and suppliers`,`${STANDALONE&&GOOGLE_CLIENT_ID&&NS?'<button class="btn" data-act="scan-google">Import Google Contacts</button>':''}<button class="btn" data-act="scan-gmail">Find in Gmail</button><button class="btn primary" data-act="modal" data-m="contact">${ICON.plus}Contact</button>`)+
+  (sc?`<div class="panel" style="margin-bottom:14px;display:grid;gap:8px"><h2>${sc.source==='google'?'Google Contacts':'People you email'}${sc.busy?' <span class="tid">loading…</span>':''}<button class="btn ghost sm" data-act="scan-close">Close</button></h2>
+    ${sc.err?`<div class="empty-note">${esc(sc.err.msg)} ${sc.err.allow?'<button class="btn primary sm" data-act="allow-gmail">Connect Gmail</button>':''}</div>`:''}
+    ${sc.list?`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><p class="empty-note" style="margin:0">${sc.source==='google'?`${sc.total} contacts not yet in Workbench${sc.total>sc.list.length?' (showing the 300 most recently changed)':''}.`:`From your last ${sc.threads} email threads (90 days).`} Tick the people to save.</p><button class="btn ghost sm" data-act="scan-all">Select all</button></div><div class="lines" style="max-height:320px;overflow:auto">${sc.list.map((c,i)=>`<label class="line"><input type="checkbox" data-scan="${i}" id="sc-${i}" ${c.pick?'checked':''}><span class="grow"><b>${esc(c.name||c.email)}</b> <span class="tid">${esc(c.email)}</span></span><span class="tid">${sc.source==='google'?esc([c.company,c.phone].filter(Boolean).join(' · ')):`${c.count} emails · ${fmtD(c.last)}`}</span></label>`).join('')||'<div class="empty-note">Everyone found is already saved.</div>'}</div>
     <div><button class="btn primary sm" data-act="scan-add">Save selected</button></div>`:''}</div>`:'')+
   `<div class="filters"><input type="search" id="ct-q" data-ct="q" value="${esc(S.contactQ)}" placeholder="Search name, email, company, tag"></div>
   <div class="tbl-wrap"><table class="grid"><thead><tr><th>Name</th><th>Email</th><th>Company / role</th><th>Projects</th><th>Tags</th><th>Last contact</th><th></th></tr></thead><tbody>
@@ -1953,6 +1981,7 @@ function gmailStatusLine(){
   return{connected:`Connected${g.account?' as <b>'+esc(g.account)+'</b>':''}`,unknown:'Ready to connect. The first Gmail action asks for your permission.',missing:'Not connected. Add Gmail in claude.ai Settings → Connectors.',reauth:'Connection expired. Reconnect Gmail in claude.ai Settings → Connectors.',denied:'Not allowed for this page. Use “Manage permissions” to allow it.',nopage:'Available when this page is open in Claude.'}[g.status]||'';
 }
 function accountCard(){
+  if(STANDALONE)return gAccountCard();
   const me=ME||{};
   return`<div style="display:flex;gap:12px;align-items:center">${me.avatarUrl?`<img src="${esc(me.avatarUrl)}" alt="" style="width:44px;height:44px;border-radius:50%">`:''}<div><b style="font-size:15px">${esc(me.name||'Your Claude account')}</b><div class="tid">${esc(me.email||'Signed in with Claude')}</div></div></div>
   <div class="panel" style="background:var(--surface-2);display:grid;gap:6px"><b>Gmail</b><span style="font-size:13px">${gmailStatusLine()}</span>
@@ -1962,6 +1991,13 @@ function accountCard(){
 function renderWelcome(){
   const host=$('#welcome');if(!host)return;
   if(!S.welcome){host.innerHTML='';return}
+  if(STANDALONE){
+    host.innerHTML=`<div class="welcome"><div class="welcome-card" role="dialog" aria-label="Sign in">${standaloneWelcome()}</div></div>`;
+    const b=$('#g-btn');
+    if(b&&GA.ready){const dark=matchMedia('(prefers-color-scheme: dark)').matches&&document.documentElement.dataset.theme!=='light';
+      try{google.accounts.id.renderButton(b,{type:'standard',theme:dark?'filled_black':'outline',size:'large',text:'continue_with',shape:'pill',logo_alignment:'left',width:Math.min(320,b.clientWidth||320)})}catch(e){}}
+    return;
+  }
   host.innerHTML=`<div class="welcome"><div class="welcome-card">
     <div class="brand" style="padding:0"><span class="brand-mark">${ICON.bench}</span><b>Workbench</b></div>
     <h1>${ME&&ME.name?'Welcome back, '+esc(ME.name.split(' ')[0]):'Welcome'}</h1>
@@ -1972,6 +2008,13 @@ function renderWelcome(){
 }
 const EXT={
   'allow-gmail':async()=>{
+    if(STANDALONE){
+      if(!GOOGLE_CLIENT_ID){toast('Google sign-in is not set up for this copy. See the README.');return}
+      if(!NS){S.modal=null;S.welcome=true;render();return}
+      try{await requestGoogleToken();toast('Gmail connected');if(S.page==='inbox')loadInbox();else render()}
+      catch(e){toast('Gmail access was not granted.')}
+      return;
+    }
     if(PERMS){try{const r=await PERMS.request(['mcp:Gmail']);if(r&&r['mcp:Gmail']==='denied'){S.gmail.status='denied';render();return}}catch(e){}}
     await refreshGmailStatus();
     if(S.page==='inbox')loadInbox();else{try{const res=await gmail('search_threads',{query:'in:inbox',pageSize:1,view:'THREAD_VIEW_METADATA_ONLY'});const t=res&&res.threads&&res.threads[0];const acc=t&&accountFromUrl(t.viewUrl);if(acc)S.gmail.account=acc;S.gmail.status='connected';toast('Gmail connected')}catch(e){toast(gmailErr(e).msg)}render()}
@@ -2007,7 +2050,8 @@ const EXT={
     renderMain()},
   'scan-gmail':()=>scanGmail(),
   'scan-close':()=>{S.scan=null;renderMain()},
-  'scan-add':()=>{const sc=S.scan;if(!sc||!sc.list)return;let n=0;for(const c of sc.list.filter(c=>c.pick)){saveDoc('contacts',{id:uid(),name:c.name,email:c.email,phone:'',company:(c.email.split('@')[1]||'').split('.')[0],role:'',projects:[],tags:[],notes:'',source:'gmail',lastContact:c.last,created:Date.now()},'none');n++}
+  'scan-all':()=>{if(S.scan&&S.scan.list){const all=S.scan.list.every(c=>c.pick);S.scan.list.forEach(c=>c.pick=!all);renderMain()}},
+  'scan-add':()=>{const sc=S.scan;if(!sc||!sc.list)return;let n=0;for(const c of sc.list.filter(c=>c.pick)){saveDoc('contacts',{id:uid(),name:c.name,email:c.email,phone:c.phone||'',company:c.company||(sc.source==='google'?'':(c.email.split('@')[1]||'').split('.')[0]),role:c.role||'',projects:[],tags:[],notes:'',source:sc.source==='google'?'google':'gmail',lastContact:c.last||'',created:Date.now()},'none');n++}
     S.scan=null;toast(n?`Saved ${n} contacts`:'Tick at least one person');render()},
   'ct-mail':el=>{const c=S.col.contacts[el.dataset.id];if(!c)return;S.page='inbox';S.inbox.q=`from:${c.email} OR to:${c.email}`;render();loadInbox()},
   'note-new':()=>newNote($('#nt-tpl')?.value||'blank'),
@@ -2089,6 +2133,163 @@ function extModal(m){
       <div class="modal-actions">${m.id?`<button type="button" class="btn danger" data-act="lib-del" data-id="${m.id}" style="margin-right:auto">Delete</button>`:''}<button type="button" class="btn" data-act="close-modal">Cancel</button><button class="btn primary">Save</button></div></form>`}
   return'';
 }
+/* ============ standalone: Google sign-in, Gmail and Contacts through Google APIs ============ */
+const STANDALONE=!(window.claude&&window.claude.use);
+const GA={ready:false,failed:false,token:null,exp:0};
+function gAccounts(){try{return JSON.parse(localStorage.getItem('fw.accounts')||'[]')}catch(e){return[]}}
+function gSaveAccounts(a){try{localStorage.setItem('fw.accounts',JSON.stringify(a))}catch(e){}}
+function jwtPayload(t){try{const b=String(t).split('.')[1].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(b),c=>c.charCodeAt(0))))}catch(e){return null}}
+function loadGis(){return new Promise((res,rej)=>{if(window.google&&google.accounts)return res();const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=()=>res();s.onerror=()=>rej(new Error('gis'));document.head.appendChild(s)})}
+async function gInit(){
+  try{await loadGis();google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:onGoogleCredential,auto_select:false,cancel_on_tap_outside:true,itp_support:true});GA.ready=true}
+  catch(e){GA.failed=true}
+  renderWelcome();
+}
+function onGoogleCredential(resp){
+  const p=jwtPayload(resp&&resp.credential);
+  if(!p||!p.email){toast('Google sign-in failed. Try again.');return}
+  if(p.aud!==GOOGLE_CLIENT_ID||!/accounts\.google\.com$/.test(p.iss||'')||(p.exp&&p.exp*1000<Date.now())){toast('That sign-in could not be verified. Try again.');return}
+  const acc={email:String(p.email).toLowerCase(),name:p.name||p.email,picture:p.picture||'',last:Date.now()};
+  gSaveAccounts([acc,...gAccounts().filter(a=>a.email!==acc.email)]);
+  signInAs(acc.email,true);
+}
+function signInAs(email,fresh){
+  const acc=gAccounts().find(a=>a.email===email);if(!acc)return;
+  // the first account adopts data saved before sign-in was set up
+  try{if(gAccounts().length===1&&!localStorage.getItem('fw.data:'+email)&&localStorage.getItem('fw.data')){localStorage.setItem('fw.data:'+email,localStorage.getItem('fw.data'));const c=localStorage.getItem('fw.cols');if(c)localStorage.setItem('fw.cols:'+email,c)}}catch(e){}
+  try{localStorage.setItem('fw.active',email)}catch(e){}
+  NS=email;GA.token=null;GA.exp=0;
+  try{const t=JSON.parse(sessionStorage.getItem('fw.gtok:'+email)||'null');if(t&&t.exp>Date.now()+60000){GA.token=t.token;GA.exp=t.exp}}catch(e){}
+  ME={name:acc.name,email:acc.email,avatarUrl:acc.picture};S.gmail={status:GA.token?'connected':'unknown',account:acc.email};
+  loadLocal();Object.values(S.projects).forEach(ensureProject);loadColsLocal();normalizeCur();
+  Object.assign(S.inbox,{threads:null,open:null,thread:null,err:null,draft:null,next:null});S.scan=null;S.noteSel=null;S.drawer=null;
+  S.welcome=false;S.modal=null;
+  if(fresh)toast('Signed in as '+acc.email);
+  render();
+  if(S.page==='inbox'&&GA.token)loadInbox();
+}
+function signOut(){
+  try{if(window.google&&google.accounts){google.accounts.id.disableAutoSelect();if(GA.token)google.accounts.oauth2.revoke(GA.token,()=>{})}}catch(e){}
+  try{sessionStorage.removeItem('fw.gtok:'+NS);localStorage.removeItem('fw.active')}catch(e){}
+  GA.token=null;NS='';ME=null;S.projects={};S.cur=null;S.col={notes:{},library:{},contacts:{}};S.gmail={status:'unknown',account:''};
+  S.page='dashboard';S.modal=null;S.drawer=null;S.welcome=true;render();
+}
+function requestGoogleToken(){
+  return new Promise((res,rej)=>{
+    if(!GA.ready){rej({code:'capability_disabled'});return}
+    try{
+      const client=google.accounts.oauth2.initTokenClient({client_id:GOOGLE_CLIENT_ID,scope:G_SCOPES,hint:NS||undefined,include_granted_scopes:true,
+        callback:r=>{
+          if(r.error||!google.accounts.oauth2.hasGrantedAllScopes(r,'https://www.googleapis.com/auth/gmail.readonly')){rej({code:'approval_required'});return}
+          GA.token=r.access_token;GA.exp=Date.now()+(Number(r.expires_in)||3600)*1000;GA.scopes=r.scope||'';
+          try{sessionStorage.setItem('fw.gtok:'+NS,JSON.stringify({token:GA.token,exp:GA.exp}))}catch(e){}
+          S.gmail.status='connected';res(GA.token)},
+        error_callback:()=>rej({code:'approval_required'})});
+      client.requestAccessToken();
+    }catch(e){rej({code:'upstream_error'})}
+  });
+}
+async function gfetch(url,opt={}){
+  if(!GA.token||GA.exp<Date.now()+30000){GA.token=null;throw{code:'needs_reauth'}}
+  let r;try{r=await fetch(url,{...opt,headers:{Authorization:'Bearer '+GA.token,...(opt.headers||{})}})}catch(e){throw{code:'server_unavailable'}}
+  if(r.status===401){GA.token=null;try{sessionStorage.removeItem('fw.gtok:'+NS)}catch(e){}throw{code:'needs_reauth'}}
+  if(r.status===429||r.status>=500)throw{code:'server_unavailable'};
+  if(!r.ok){let m='';try{m=(await r.json()).error.message}catch(e){}throw{code:'tool_error',message:m||('HTTP '+r.status)}}
+  return r.json();
+}
+const GM='https://gmail.googleapis.com/gmail/v1/users/me/';
+const hdr=(m,n)=>{const h=((m.payload||{}).headers||[]).find(x=>x.name.toLowerCase()===n.toLowerCase());return h?h.value:''};
+const splitAddrs=s=>String(s||'').split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(x=>x.trim()).filter(Boolean);
+function b64d(s){try{return new TextDecoder('utf-8').decode(Uint8Array.from(atob(String(s).replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)))}catch(e){return''}}
+function b64e(str){const bytes=new TextEncoder().encode(str);let bin='';for(let i=0;i<bytes.length;i+=0x8000)bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+0x8000));return btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
+function plainOf(part){
+  if(!part)return'';
+  if(part.mimeType==='text/plain'&&part.body&&part.body.data)return b64d(part.body.data);
+  for(const p of part.parts||[]){const t=plainOf(p);if(t)return t}
+  if(part.mimeType==='text/html'&&part.body&&part.body.data){const d=new DOMParser().parseFromString(b64d(part.body.data).replace(/<br\s*\/?>/gi,'\n').replace(/<\/(p|div|tr|li|h\d)>/gi,'\n'),'text/html');d.querySelectorAll('style,script').forEach(x=>x.remove());return(d.body.textContent||'').replace(/\n{3,}/g,'\n\n').trim()}
+  return'';
+}
+function gMsg(m,full){return{id:m.id,threadId:m.threadId,sender:hdr(m,'From'),toRecipients:splitAddrs(hdr(m,'To')),ccRecipients:splitAddrs(hdr(m,'Cc')),subject:hdr(m,'Subject'),snippet:m.snippet||'',date:m.internalDate?new Date(Number(m.internalDate)).toISOString():'',labelIds:m.labelIds||[],...(full?{plaintextBody:plainOf(m.payload)}:{})}}
+const gView=id=>`https://mail.google.com/mail/?authuser=${encodeURIComponent(NS)}#all/${id}`;
+async function gmailRest(tool,input){
+  if(tool==='search_threads'){
+    const q=new URLSearchParams({q:input.query||'',maxResults:String(Math.min(input.pageSize||20,50))});if(input.pageToken)q.set('pageToken',input.pageToken);
+    const list=await gfetch(GM+'threads?'+q);const ids=(list.threads||[]).map(t=>t.id);
+    const meta='format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Subject';const threads=[];
+    for(let i=0;i<ids.length;i+=10){
+      const chunk=await Promise.all(ids.slice(i,i+10).map(id=>gfetch(GM+'threads/'+id+'?'+meta).catch(()=>null)));
+      for(const t of chunk)if(t){const ms=(t.messages||[]).map(m=>gMsg(m,false));threads.push({id:t.id,messageCount:ms.length,viewUrl:gView(t.id),messages:ms.length?[ms[ms.length-1]]:[]})}
+    }
+    return{threads,nextPageToken:list.nextPageToken||null};
+  }
+  if(tool==='get_thread'){const t=await gfetch(GM+'threads/'+encodeURIComponent(input.threadId)+'?format=full');return{id:t.id,viewUrl:gView(t.id),messages:(t.messages||[]).map(m=>gMsg(m,true))}}
+  if(tool==='create_draft'){
+    let inReply='',refs='',threadId='';
+    if(input.replyToMessageId){try{const m=await gfetch(GM+'messages/'+encodeURIComponent(input.replyToMessageId)+'?format=metadata&metadataHeaders=Message-ID&metadataHeaders=References');inReply=hdr(m,'Message-ID');refs=hdr(m,'References');threadId=m.threadId}catch(e){}}
+    const subj=String(input.subject||'').replace(/[\r\n]+/g,' ');const encSubj=/[^\x20-\x7E]/.test(subj)?'=?UTF-8?B?'+b64e(subj).replace(/-/g,'+').replace(/_/g,'/')+'?=':subj;
+    const to=(input.to||[]).map(x=>String(x).replace(/[\r\n,]/g,'')).join(', ');
+    const raw=[`To: ${to}`,`Subject: ${encSubj}`,...(inReply?[`In-Reply-To: ${inReply}`,`References: ${(refs?refs+' ':'')+inReply}`]:[]),'MIME-Version: 1.0','Content-Type: text/plain; charset="UTF-8"','Content-Transfer-Encoding: 8bit','',String(input.body||'')].join('\r\n');
+    const d=await gfetch(GM+'drafts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:{raw:b64e(raw),...(threadId?{threadId}:{})}})});
+    return{id:d.id,viewUrl:`https://mail.google.com/mail/?authuser=${encodeURIComponent(NS)}#drafts`};
+  }
+  throw{code:'bad_request'};
+}
+async function googleContacts(){
+  const out=[];let tok='';
+  for(let i=0;i<6;i++){
+    const q=new URLSearchParams({personFields:'names,emailAddresses,phoneNumbers,organizations',pageSize:'500',sortOrder:'LAST_MODIFIED_DESCENDING'});if(tok)q.set('pageToken',tok);
+    const r=await gfetch('https://people.googleapis.com/v1/people/me/connections?'+q);
+    for(const p of r.connections||[]){const em=(p.emailAddresses||[])[0];if(!em||!em.value)continue;const org=(p.organizations||[])[0]||{};
+      out.push({name:((p.names||[])[0]||{}).displayName||'',email:String(em.value).toLowerCase(),phone:((p.phoneNumbers||[])[0]||{}).value||'',company:org.name||'',role:org.title||'',count:0,last:''})}
+    tok=r.nextPageToken;if(!tok)break;
+  }
+  return out;
+}
+async function scanGoogle(){
+  S.scan={busy:true,list:null,err:null,threads:0,source:'google'};renderMain();
+  try{const have=new Set(Object.values(S.col.contacts).map(c=>(c.email||'').toLowerCase()));
+    const all=(await googleContacts()).filter(c=>!have.has(c.email));
+    S.scan={busy:false,list:all.slice(0,300),err:null,source:'google',total:all.length};}
+  catch(e){S.scan={busy:false,list:null,source:'google',err:e&&e.code==='tool_error'?{msg:'Google Contacts refused the request. Make sure the People API is enabled and you allowed contacts access. '+(e.message||'')}:gmailErr(e)}}
+  renderMain();
+}
+function avatarImg(url,name,size){return url?`<img src="${esc(url)}" alt="" referrerpolicy="no-referrer" width="${size}" height="${size}" style="border-radius:50%;flex:none">`:`<span class="av" style="--c:var(--accent);width:${size}px;height:${size}px;font-size:${Math.round(size/2.6)}px">${esc(initials(name))}</span>`}
+function standaloneWelcome(){
+  const accs=gAccounts();
+  const brand=`<div class="brand" style="padding:0"><span class="brand-mark">${ICON.bench}</span><b>Workbench</b></div>`;
+  if(!GOOGLE_CLIENT_ID)return`${brand}<h1>Sign in to Workbench</h1>
+    <p class="empty-note" style="margin:0">Google sign-in is not switched on for this copy yet. To turn it on, create a Google OAuth client ID and paste it into <code>GOOGLE_CLIENT_ID</code> at the top of the script in <code>index.html</code>. The README has the steps.</p>
+    <button class="btn primary" data-act="welcome-local" style="justify-content:center;padding:10px">Continue without an account</button>
+    <span class="tid">Without an account, everything is saved in this browser only.</span>`;
+  return`${brand}<div><h1>Sign in to Workbench</h1><p class="empty-note" style="margin:6px 0 0">Use your Google account. Each account gets its own private workspace on this device.</p></div>
+    ${accs.length?`<div class="acc-list">${accs.map(a=>`<div class="acc"><button class="acc-btn" data-act="g-use" data-e="${esc(a.email)}">${avatarImg(a.picture,a.name,36)}<span style="min-width:0"><b>${esc(a.name)}</b><small>${esc(a.email)}</small></span></button><button class="x" data-act="g-forget" data-e="${esc(a.email)}" aria-label="Remove ${esc(a.email)} from this device" title="Remove from this device">×</button></div>`).join('')}</div><div class="sec">${accs.length?'or use another account':''}</div>`:''}
+    <div id="g-btn" class="g-btn-host">${GA.ready?'':GA.failed?'':'<span class="tid">Loading Google sign-in…</span>'}</div>
+    ${GA.failed?`<p class="empty-note" style="margin:0">Google sign-in could not load. Check your connection or browser extensions that block Google scripts.</p><button class="btn ghost sm" data-act="welcome-local">Continue offline in this browser</button>`:''}
+    <p class="empty-note" style="margin:0;font-size:12px">Signing in shares only your name, email address and profile photo with this page. Gmail and Contacts access is asked for separately, when you connect them. Workbench never sends email.</p>`;
+}
+function gAccountCard(){
+  if(!GOOGLE_CLIENT_ID)return'<p class="empty-note" style="margin:0">Google sign-in is not set up for this copy. Paste your client ID into <code>GOOGLE_CLIENT_ID</code> in index.html (see the README).</p><button class="btn sm" data-act="g-add">Open sign-in screen</button>';
+  if(!NS)return'<p class="empty-note" style="margin:0">You are using Workbench without an account. Data stays in this browser.</p><button class="btn primary sm" data-act="g-add">Sign in with Google</button>';
+  const me=ME||{};const others=gAccounts().filter(a=>a.email!==NS);
+  return`<div style="display:flex;gap:12px;align-items:center">${avatarImg(me.avatarUrl,me.name,44)}<div style="min-width:0"><b style="font-size:15px">${esc(me.name)}</b><div class="tid">${esc(me.email)}</div></div><button class="btn sm" data-act="g-signout" style="margin-left:auto">Sign out</button></div>
+  <div class="panel" style="background:var(--surface-2);display:grid;gap:6px"><b>Gmail &amp; Google Contacts</b>
+    <span style="font-size:13px">${GA.token?`Connected until about ${new Date(GA.exp).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'})}`:'Not connected. Connect to read your inbox, save reply drafts and import contacts.'}</span>
+    <div style="display:flex;gap:8px">${GA.token?'<button class="btn sm" data-act="g-disconnect">Disconnect</button>':'<button class="btn primary sm" data-act="allow-gmail">Connect Gmail</button>'}</div>
+    <span class="tid">Google grants access for about an hour at a time, and it ends when you close this tab. Workbench reads mail, creates drafts and reads contacts. It cannot send email.</span></div>
+  <div class="sec">Other accounts on this device</div>
+  ${others.map(a=>`<div class="line">${avatarImg(a.picture,a.name,28)}<span class="grow"><b>${esc(a.name)}</b> <span class="tid">${esc(a.email)}</span></span><button class="btn sm" data-act="g-use" data-e="${esc(a.email)}">Switch</button></div>`).join('')||'<span class="empty-note">None yet.</span>'}
+  <div><button class="btn sm" data-act="g-add">Add another Google account</button></div>`;
+}
+Object.assign(EXT,{
+  'g-use':el=>signInAs(el.dataset.e,true),
+  'g-forget':el=>{const e=el.dataset.e;gSaveAccounts(gAccounts().filter(a=>a.email!==e));renderWelcome();toast('Removed from this device. Its saved workspace stays until you clear site data.')},
+  'g-signout':()=>signOut(),
+  'g-add':()=>{S.modal=null;S.welcome=true;render()},
+  'g-disconnect':()=>{try{if(GA.token&&window.google)google.accounts.oauth2.revoke(GA.token,()=>{})}catch(e){}GA.token=null;try{sessionStorage.removeItem('fw.gtok:'+NS)}catch(e){}S.gmail.status='unknown';toast('Gmail disconnected');render()},
+  'welcome-local':()=>{NS='';S.welcome=false;try{sessionStorage.setItem('fw.local','1')}catch(e){}loadLocal();Object.values(S.projects).forEach(ensureProject);loadColsLocal();normalizeCur();render()},
+  'scan-google':()=>{if(GA.token)scanGoogle();else requestGoogleToken().then(scanGoogle).catch(()=>toast('Google Contacts access was not granted.'))}
+});
+
 EXT['confirm-ct']=el=>confirmAsk('Delete contact?','The contact is removed from Workbench. Gmail is not changed.','ct-del',el.dataset.id);
 EXTC['ct-del']=m=>{delDoc('contacts',m.id)};
 
@@ -2097,7 +2298,16 @@ async function init(){
   loadLocal();Object.values(S.projects).forEach(ensureProject);normalizeCur();
   if(S.page==='project'&&!S.cur)S.page='dashboard';
   render();
-  if(!window.claude||!window.claude.use){S.aiOff='The agent works when this page is open in Claude.';renderAI();return}
+  if(STANDALONE){
+    S.aiOff='The agent works when this page is open in Claude.';
+    if(GOOGLE_CLIENT_ID){
+      let act='';try{act=localStorage.getItem('fw.active')||''}catch(e){}
+      if(act&&gAccounts().some(a=>a.email===act))signInAs(act);
+      else{let local=false;try{local=sessionStorage.getItem('fw.local')==='1'}catch(e){}S.welcome=!local;render()}
+      gInit();
+    }else{let local=false;try{local=sessionStorage.getItem('fw.local')==='1'}catch(e){}S.welcome=!local;render()}
+    return;
+  }
   const use=n=>window.claude.use(n).catch(()=>null);
   const [db,sample,mcp,dl,usr,assets,perms]=await Promise.all([use('db'),use('sample'),use('mcp'),use('downloads'),use('user'),use('assets'),use('permissions')]);
   AI=sample||null;if(!AI)S.aiOff='The agent is not available in this view.';
